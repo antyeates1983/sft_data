@@ -29,13 +29,15 @@ ds = 2/ns;
 [pc2 sc2]=meshgrid(pc,sc);
 
 %% Identify strong flux regions by smoothing absolute flux then contouring:
+SIG = 3;  % width of smoothing filter
+BPAR = 15; % cut-off
 % Absolute value of synoptic map:
 map=abs(map1);
 % Smooth by convolving with gaussian filter:
-myfilt = fspecial('gaussian',[12 12], 3);
+myfilt = fspecial('gaussian',[4*SIG 4*SIG], SIG);
 map=imfilter(map, myfilt, 'replicate');
 % Cut-off in flux:
-maski=(map > 15);
+maski=(map > BPAR);
 mask=maski*1.;
 % Identify and number separate regions:
 cc=bwconncomp(mask,8);

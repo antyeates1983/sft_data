@@ -229,7 +229,8 @@ for n=1:nrot
     map1 = readSynoptic(magType, magPath, rot0+n, ns, np, 0);
     %
     % Smooth observed magnetogram:    
-    myfilt = fspecial('gaussian',[13 13], 5);
+    SIG = 5;
+    myfilt = fspecial('gaussian',[4*SIG 4*SIG], SIG);
     map1sm=imfilter(map1, myfilt, 'replicate');
     % Add column to butterfly diagram:
     bfly_obs(:,n) = mean(map1sm,2);
