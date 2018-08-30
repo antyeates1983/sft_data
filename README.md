@@ -5,5 +5,7 @@ For more details of the method/motivation etc., see Yeates et al., 2015, Solar P
 
 Also requires magnetogram data (typically .fits format). For NSO data see here: http://solis.nso.edu/0/vsm/vsm_maps.php.
 
+30/8/18 - updated with some improvements, notably accounting for new regions on the grid boundary + saving region stats.
+
 For queries contact Anthony Yeates, Department of Mathematical Sciences, Durham University, UK.
 
