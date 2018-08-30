@@ -1,6 +1,6 @@
 function [BR pc sc flux] = readSynoptic(type, magPath, rot0, ns, np, plot)
-% READSYNOPTIC.m Read in observed synoptic map and remove monopole component by 
-% a multiplicative correction.
+% READSYNOPTIC.m Read in observed synoptic map, correct flux, and map to
+% simulation grid. 
 %
 % INPUTS:
 % type -- name of observatory to use (affects filename and how data read)
@@ -16,13 +16,13 @@ function [BR pc sc flux] = readSynoptic(type, magPath, rot0, ns, np, plot)
 % sc -- 1d array of sin(lat) at cell centres of simulation grid
 % flux -- total unsigned flux of BR (Mx)
 %
-% - A.R. Yeates, Durham University 8/3/16
+% - A.R. Yeates, Durham University 30/8/18
 
 if (nargin < 6)
     plot = 0;
 end
 
-%% Form grid arrays (using only a single subgrid):
+%% Form grid arrays:
 dp = 2*pi/np;
 pc = 0.5*dp:dp:(2*pi - 0.5*dp);
 ds = 2/ns;
@@ -31,41 +31,42 @@ sc = (-1+0.5*ds):ds:(1-0.5*ds);
 % 2d (ph,th) array:
 [PHC,SC]=meshgrid(pc,sc);
 
-
 %% (1) Read in synoptic map:
 if (type=='kp')
-    fname = strcat(magPath,sprintf('m%4.4df.fits',rot0));
+    if (rot0<2008)
+        fname = strcat(magPath,sprintf('m%4.4df.fits',rot0));
+    else
+        fname = strcat(magPath,sprintf('m%4.4ds.fits',rot0));
+    end
     if exist(fname,'file')
         BR0=fitsread(fname);
+        BR0=squeeze(BR0(:,:,1));
     else
         BR0=zeros(ns,np);
     end
-    nlat=size(BR0,1);
-    nlon=size(BR0,2);
-    sc0=2./nlat*((1:nlat) - 0.5) - 1;
-    phc0=2.*pi/nlon*((1:nlon) - 0.5);
 end
+BR0(isnan(BR0))=0;
+
+nlat=size(BR0,1);
+nlon=size(BR0,2);
+sc0=2./nlat*((1:nlat) - 0.5) - 1;
+phc0=2.*pi/nlon*((1:nlon) - 0.5);
     
 % 2d (ph,th) array:
 [PHC0,SC0]=meshgrid(phc0,sc0);
 
 %% (2) Remap to computational grid:
-BR=interp2(PHC0,SC0,BR0,PHC,SC,'spline');
+BR=interp2(PHC0,SC0,BR0,PHC,SC,'cubic');
 
-%% (3) New method of monopole removal (multiplicative):
-BR1 = BR;
-BR1(BR1 < 0) = 0;
-fluxp = abs(sum(BR1(:)))*dp*ds;
-BR1 = BR;
-BR1(BR1 > 0) = 0;
-fluxn = abs(sum(BR1(:)))*dp*ds;
-% Rescale either positive or negative field, to match polarity with lower
-% flux.
-if (fluxp < fluxn)
-    BR(BR<0) = BR(BR<0)*fluxp/fluxn;
-else
-    BR(BR>0) = BR(BR>0)*fluxn/fluxp;
-end
+%% (3) Correct flux balance by scaling both polarities to mean:
+%      - assumes cells have equal area
+ipos = BR > 0;
+ineg = BR < 0;
+fluxp = abs(sum(BR(ipos)));
+fluxn = abs(sum(BR(ineg)));
+fluxmn = 0.5*(fluxn + fluxp);
+BR(ineg) = BR(ineg)*fluxmn/fluxn;
+BR(ipos) = BR(ipos)*fluxmn/fluxp;
 
 %% (4) Unsigned flux (on simulation grid):
 flux = sum(abs(BR(:)))*dp*ds;
