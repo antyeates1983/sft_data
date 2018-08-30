@@ -7,22 +7,26 @@ close all; clear all;
 %% (0) User-defined parameters:
 % Type of magnetogram and path to magnetogram files:
 magType = 'kp';
-magPath = '~/Desktop/kpmag/';
+magPath = '~/Dropbox/2015to2016_DATA/kpmag/';
 % Path to output (if any):
-outPath = '~/Desktop/2016_03_08_sft1/';
+outPath = '~/Desktop/test1/';
 % Number of cells in simulation grid in sin(latitude) and longitude:
 ns = 90;
 np = 180;
 % Carrington rotations to start and stop at:
-rot0=1910;
-rot1=1912;
+rot0=1641;
+rot1=1700;
+% Start from analytical Br profile (2a below)?
+startanalytical=1;
 % Output plots of Br to screen, once per rotation?
-showplots=0;
+bplots=1;
 % Save aforementioned plots to outPath as pngs?
-saveplots=0;
+savebplots=1;
+% Output plots of each emerging region?
+regionplots=1;
 
 %% (1) Read initial synoptic map
-[br0 pc sc flux] = readSynoptic(magType, magPath, rot0, ns, np);
+[br0 pc sc flux] = readSynoptic(magType, magPath, rot0, ns, np, 1);
 ns=size(br0,1);
 np=size(br0,2);
 
@@ -40,6 +44,12 @@ latg=asin(sg);
 dp=pc(2)-pc(1);
 ds=sc(2)-sc(1);
 
+%% (2a) Analytical profile to start from (if selected):
+if (startanalytical==1)
+    b0 = 6.7;
+    br0 = b0*abs(slat).^7.*slat;
+end
+    
 %% (3) Compute vector potential on ribs from Bz at cell centres:
 % Br = 1/(sin(th))*( d/dth(sin(th)Aph) - d/dph(Ath) )
 % Aph(th,ph) = 0
@@ -62,6 +72,8 @@ vph_om = om.*sthcth;
 v0=11./6.96e8;
 vth_mf = -sin(2*latph).*exp(pi*(1.-2*abs(latph)/pi));
 vth_mf = vth_mf*v0/max(abs(vth_mf(:)));
+% (d) Flux decay (set to zero to turn off):
+tau=10.1*365.25*86400.0;
 
 %% (5) Choose timestep
 % Timesteps (for CFL condition):
@@ -84,13 +96,21 @@ dt=dtday*86400;
 % Color table:
 load('Bluered.mat');
 % Set up plotting window if required:
-if (showplots==1)
-    f1=figure(1);
+if (bplots==1)
+    figure(1);
     set(gcf,'Units','centimeters','Position',[10 10 16 16], 'PaperPositionMode', 'auto');
-    cmax=10;
+    cmax=50;
+end  
+if (regionplots==1)
+    figure(2);
+    set(gcf,'Units','centimeters','Position',[10 10 16 16], 'PaperPositionMode', 'auto');
+    cmax2=50;
 end  
 % Create output directory (if necessary):
 system(['mkdir ' outPath]);
+% Initialise region stats file:
+fidr = fopen([outPath 'region_stats.txt'], 'w');
+nregion = 0;
 % Initialize arrays:
 brc=zeros(ns+2,np+2);
 nrot=rot1-rot0;
@@ -110,19 +130,20 @@ for n=1:nrot
     disp(sprintf('Rotation %g',rot0+n));
     %
     % (a) Generate list of emerging regions for this rotation, and their times:
-    [map1 lm reglon]=getEmergingRegions(magType, magPath, rot0+n, ns, np);
-    nlm=max(lm(:));
+    [bem lm reglon leadpol]=getEmergingRegions(magType, magPath, rot0+n, ns, np);
+    nlm=size(reglon,2);
     % Convert Carrington longitude to time (in days):
     regt=(360-reglon)*27.2753/360.;
     % Round to nearest day:
     regt=round(regt);
-    %
-    % (b) Sort into day order:
+    % Sort into day order:
     [regt isort]=sort(regt,'descend');
     lm0=lm;
     for i=1:nlm
        lm(lm0==i)=isort(i); 
     end
+    %
+    % (b) Initialise day and region counter:
     day=0.;
     nxtreg=nlm;
     if (nxtreg > 0)
@@ -131,8 +152,12 @@ for n=1:nrot
         nxtregt = -1;
     end
     %
+    % (c) Read in synoptic map for plots (if required):
+    if (regionplots | bplots)
+        map1 = readSynoptic(magType, magPath, rot0+n, ns, np, 0);
+    end
     tic
-    % (c) Loop over individual timesteps within the rotation:
+    % (d) Loop over individual timesteps within the rotation:
     for step=1:ndt
         % (i) Compute B at cell centres from A
         % Note d/dth = d(cos(th))/dth*d/d(cos(th)) = -sin(th)d/d(cos(th))
@@ -144,9 +169,22 @@ for n=1:nrot
         if (nxtregt==floor(day))
             while (nxtregt == floor(day))
                 br1=brc(2:end-1,2:end-1);
-                npts=sum(lm(:)==nxtreg);
-                oldflux=sum(br1(lm==nxtreg)*dp*ds);
-                br1(lm==nxtreg) = map1(lm==nxtreg) + oldflux/(npts*dp*ds);                
+                npts=sum(sum(lm(nxtreg,:,:)==1));
+                oldflux=sum(sum(br1(lm(nxtreg,:,:)==1)*dp*ds));
+                
+                % New region:
+                map1a=squeeze(bem(nxtreg,:,:));
+                
+                % Record statistics of new region (before correction):
+                flux1 = 0.5*sum(sum(abs(map1a)*dp*ds));
+                size1 = npts;
+                slat1 = sum(sum(abs(map1a).*slat))/sum(sum(abs(map1a)));
+                ad1a = 1.5*sum(sum(map1a.*slat*dp*ds))/2/pi;
+                leadpol1 = leadpol(nxtreg);
+                fprintf(fidr, '%4i %4i %4i %12.8f %12.8f %12.8f %12.8f %12.8f\n', nregion, (rot0+n), leadpol1, day, flux1, size1, slat1, ad1a);
+                
+                % Add in new region:
+                br1(lm(nxtreg,:,:)==1) = map1a(lm(nxtreg,:,:)==1) + oldflux/(npts*dp*ds);                
                 brc(2:end-1,2:end-1)=br1;
                 % Recompute vector potential:
                 aph=zeros(ns+1,np);
@@ -158,6 +196,44 @@ for n=1:nrot
                 else
                     nxtregt = -1;
                 end
+                
+                % Plot if required:
+                if (regionplots)
+                    % Plot the individual region (before/after correction):
+                    figure(2);
+                    % Before correction:
+                    subplot(3,1,1);
+                    colormap(cmap);
+                    h=pcolor(pc,latc,map1);
+                    set(h,'EdgeColor','none');
+                    caxis([-cmax2, cmax2]);
+                    colorbar;
+                    title(sprintf('CR %g',rot0+n));
+                    xlabel('Longitude'); ylabel('Latitude');
+
+                    subplot(3,1,2);
+                    colormap(cmap);
+                    h=pcolor(pc,latc,map1a);
+                    set(h,'EdgeColor','none');
+                    caxis([-cmax2, cmax2]);
+                    colorbar;
+                    title(sprintf('Region %d', nregion));
+                    xlabel('Longitude'); ylabel('Latitude');
+
+                    % After correction:
+                    subplot(3,1,3);
+                    h=pcolor(pc,latc,br1);   
+                    set(h,'EdgeColor','none');
+                    caxis([-cmax2, cmax2]);
+                    colorbar;
+                    title('Flux corrected');
+                    xlabel('Longitude'); ylabel('Latitude');
+                    pause(0.001);
+                    
+                    % Save the plot to file:
+                    saveas(gcf(),strcat(outPath,sprintf('region_%4.4d.png',nregion)));
+                end
+                nregion = nregion + 1;
             end
         end
         %
@@ -178,6 +254,10 @@ for n=1:nrot
         emfph = emfph + f2.*(brc(2:end,2:end-1)-brc(1:end-1,2:end-1));
         %
         % (viii) Update vector potential
+        if (tau > 0)
+            ath = ath - dt*ath/tau;
+            aph = aph - dt*aph/tau;
+        end
         ath = ath - dt*emfth;
         aph = aph - dt*emfph;
         %
@@ -190,7 +270,7 @@ for n=1:nrot
     % (e) Add to unsigned flux array:
     unflux(n) = sum(sum(abs(brc(2:end-1,2:end-1))*dp*ds));
     %
-    if (showplots==1)
+    if (bplots==1)
         figure(1);
         % (f) Plot Br in lat-long:
         % Simulated:
@@ -204,7 +284,6 @@ for n=1:nrot
         xlabel('Longitude'); ylabel('Latitude');
         % Observed:
         subplot(2,1,2);
-        map1 = readSynoptic(magType, magPath, rot0+n, ns, np, 0);
         % [Correct flux imbalance:]
         fnet=sum(map1(:)*dp*ds);
         map1=map1-fnet/(ns*np*dp*ds);
@@ -216,11 +295,13 @@ for n=1:nrot
         xlabel('Longitude'); ylabel('Latitude');
         pause(0.001);
         % Save the plot to file:
-        if (saveplots==1)
+        if (savebplots==1)
             saveas(gcf(),strcat(outPath,sprintf('br_cr%4.4d.png',rot0+n)));
         end
     end
 end
+% Close region stats file:
+fclose(fidr);
 
 %% (7) Read in observed synoptic data for comparison:
 bfly_obs=zeros(ns,nrot);
