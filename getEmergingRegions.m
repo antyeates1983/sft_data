@@ -129,10 +129,10 @@ leadpol=ones(1,nlm);
 for j=1:nlm
     btmp = map1.*(lm==j);
     btmp(btmp < 0) = 0;
-    cenpos=sum(sum(abs(btmp).*pc3))/sum(sum(abs(btmp)));
+    cenpos=sum(sum(abs(btmp).*pc2))/sum(sum(abs(btmp)));
     btmp = map1.*(lm==j);
     btmp(btmp > 0) = 0;
-    cenneg=sum(sum(abs(btmp).*pc3))/sum(sum(abs(btmp)));
+    cenneg=sum(sum(abs(btmp).*pc2))/sum(sum(abs(btmp)));
     if (cenneg > cenpos)
         leadpol(j) = -1;
     end
